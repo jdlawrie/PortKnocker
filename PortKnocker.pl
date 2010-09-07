@@ -47,15 +47,23 @@ while (<$log>) {
 }
 
 sub fork_end {
-    my $pid = waitpid(-1, &WNOHANG);
-    print "Finished with $pid\n";
-    delete($pids{$pid});
+    my $pid;
+    while(($pid = waitpid(-1, &WNOHANG)) > 1) {
+        print "Finished with $pid\n";
+        delete($pids{$pid});
+    }
 }
 
 sub interrupted {
-   while(keys %pids) { sleep(1); } # want to make sure pids close first.
-	&ipt_delete_chain(CHAIN);
-	die("Interrupted, quitting...\n");
+   die if $pids{$$};
+   if(keys %pids) { 
+      sleep(1); # want to make sure pids close first, give them a second to do so willingly
+      foreach my $pid (keys %pids) {
+          kill 9, $pid;
+      }
+   }
+   &ipt_delete_chain(CHAIN);
+   die("Interrupted, quitting...\n");
 }
 
 sub ipt_delete_chain {
@@ -74,8 +82,8 @@ sub ipt_delete_chain {
    }
    close $iptables_out;
    # Now just need to delete the chain, which should be simpler.
-   system("iptables -F $chain 2&>1"); # Delete all rules from the chain
-   system("iptables -X $chain 2&>1"); # No need to analyse return code as expected to fail sometimes.
+   system("iptables -F $chain"); # Delete all rules from the chain
+   system("iptables -X $chain"); # No need to analyse return code as expected to fail sometimes.
 }
 
 sub init_iptables {
@@ -93,28 +101,35 @@ sub init_iptables {
 
 sub allow_access {
     my ($host, $port) = @_;
+    print "Allowing access from $host to $port\n";
     system("iptables -I " . CHAIN . " -p $protocol --source $host --dport $port -j ACCEPT")
     	or die("Unable to add rule allowing host: [$host] access to port: [$port]- $!");
 }
 
 sub check_entry {
     my ($source, $port);
-    if (/\sSRC=(\d\.+)\s.*DPT=(\d+)\s/) {
+    if (/\sSRC=([\d\.]+)\s.*DPT=(\d+)\s/) {
         ($source, $port) = ($1, $2);
     }
     else {
         warn("Didn't match source or port");
+        print "$_\n";
         return;
     }
-      
-    my $progress = $hosts{$source} or 0; # host must progress through each knock before being allowed access.
+    my $progress = $hosts{$source} || 0; # host must progress through each knock before being allowed access.
+    print "Progress for $source is $progress\n";
     if ($port != $sequence[$progress]) {
+        print "Dropping to 0\n";
         $hosts{$source} = 0;
     }
     else {
+        print "Increasing by 1\n";
         $hosts{$source}++;
+        print "Now $hosts{$source}\n";
+        print join "\n", (keys %hosts);
         if ($hosts{$source} == @sequence) {
             allow_access($source, $port);
         }
     }
+    exit;
 } 
