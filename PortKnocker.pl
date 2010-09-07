@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+use IPC::Shareable;
 use POSIX ":sys_wait_h";  
 
 use constant CHAIN      => 'PortKnocker';
@@ -11,7 +12,7 @@ use constant MAX_FORKS  => 10;
 
 # The following aren't constants as most likely to be
 # configurable if that option is provided.
-my $port          = 21;
+my $port_number   = 21;
 my @knock_ports   = (2000..2010);
 my @sequence      = (2000, 2001, 2002);
 my $protocol      = 'tcp';
@@ -19,6 +20,15 @@ my $log_file      = "/var/log/messages";
 my $log_prefix    = 'PortKnocker ';
 my %pids;
 my %hosts;
+
+my %options = (
+    create    => 1,
+    exclusive => 0,
+    mode      => 0644,
+    destroy   => 1,
+);
+
+tie %hosts, 'IPC::Shareable', 'data', \%options;
 
 # Firstly setup IPTables logging (removing it if it already exists)
 # First version of the code doesn't leave existing rules
@@ -96,14 +106,14 @@ sub init_iptables {
                     "--dports ".join(',', @knock_ports)." -j $chain -m comment --comment $comment")
            and die ("Unable to add IPTables rule");
     system("iptables -A $chain -j LOG --log-prefix '$comment '") and die("Unable to add IPTables Logging");
-    system("iptables -A $chain -p $protocol --dport $port -j REJECT") and die("Unable to IPTables rule");
+    system("iptables -A $chain -p $protocol --dport $port_number -j REJECT") and die("Unable to IPTables rule");
 }
 
 sub allow_access {
     my ($host, $port) = @_;
     print "Allowing access from $host to $port\n";
     system("iptables -I " . CHAIN . " -p $protocol --source $host --dport $port -j ACCEPT")
-    	or die("Unable to add rule allowing host: [$host] access to port: [$port]- $!");
+    	and die("Unable to add rule allowing host: [$host] access to port: [$port]");
 }
 
 sub check_entry {
@@ -128,7 +138,7 @@ sub check_entry {
         print "Now $hosts{$source}\n";
         print join "\n", (keys %hosts);
         if ($hosts{$source} == @sequence) {
-            allow_access($source, $port);
+            allow_access($source, $port_number);
         }
     }
     exit;
