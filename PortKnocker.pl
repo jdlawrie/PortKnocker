@@ -47,7 +47,9 @@ while (<$log>) {
 }
 
 sub fork_end {
-    delete($pids{waitpid(-1, &WNOHANG)});
+    my $pid = waitpid(-1, &WNOHANG);
+    print "Finished with $pid\n";
+    delete($pids{$pid});
 }
 
 sub interrupted {
@@ -100,6 +102,11 @@ sub check_entry {
     if (/\sSRC=(\d\.+)\s.*DPT=(\d+)\s/) {
         ($source, $port) = ($1, $2);
     }
+    else {
+        warn("Didn't match source or port");
+        return;
+    }
+      
     my $progress = $hosts{$source} or 0; # host must progress through each knock before being allowed access.
     if ($port != $sequence[$progress]) {
         $hosts{$source} = 0;
