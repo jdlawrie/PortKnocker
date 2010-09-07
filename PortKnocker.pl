@@ -3,8 +3,9 @@
 use strict;
 use warnings;
 
+# Decided to try to use forks for this, so needed shareable variables 
 use IPC::Shareable;
-use POSIX ":sys_wait_h";  
+use POSIX ":sys_wait_h"; 
 
 use constant CHAIN      => 'PortKnocker';
 use constant COMMENT    => 'PortKnocker ';
@@ -12,23 +13,23 @@ use constant MAX_FORKS  => 10;
 
 # The following aren't constants as most likely to be
 # configurable if that option is provided.
-my $port_number   = 21;
-my @knock_ports   = (2000..2010);
-my @sequence      = (2000, 2001, 2002);
+my $port_number   = 21;                   # The port number to allow access to
 my $protocol      = 'tcp';
-my $log_file      = "/var/log/messages";
-my $log_prefix    = 'PortKnocker ';
-my %pids;
-my %hosts;
+my @knock_ports   = (2000..2010);         # The range of ports to log
+my @sequence      = (2000, 2001, 2002);   # The knock sequence
+my $log_file      = "/var/log/messages";  # where the IPTables logging will go
+my $log_prefix    = 'PortKnocker ';       # To make parsing easier
+my %pids;   # List of the current forks
+my %hosts;  # keeps track of progress through the knock sequence
 
-my %options = (
+my %options = (  # Honestly I'm not really sure what these options do. 
     create    => 1,
     exclusive => 0,
     mode      => 0644,
     destroy   => 1,
 );
 
-tie %hosts, 'IPC::Shareable', 'data', \%options;
+tie %hosts, 'IPC::Shareable', 'data', \%options; # allow the hosts hash to be used between forks.
 
 # Firstly setup IPTables logging (removing it if it already exists)
 # First version of the code doesn't leave existing rules
@@ -52,12 +53,12 @@ while (<$log>) {
         $pids{$pid}++;
     }
     else {
-    	  check_entry($_);
+        &check_entry($_); # compare the 'knock' against the sequence.
     }
 }
 
 sub fork_end {
-    my $pid;
+    my $pid; # once a fork ends, remove it from the fork hash.
     while(($pid = waitpid(-1, &WNOHANG)) > 1) {
         print "Finished with $pid\n";
         delete($pids{$pid});
@@ -65,18 +66,18 @@ sub fork_end {
 }
 
 sub interrupted {
-   die if $pids{$$};
+   die if $pids{$$}; # I don't want all forks trying to delete the IPTables rules. 
    if(keys %pids) { 
       sleep(1); # want to make sure pids close first, give them a second to do so willingly
       foreach my $pid (keys %pids) {
           kill 9, $pid;
       }
    }
-   &ipt_delete_chain(CHAIN);
+   &delete_chain(CHAIN); # remove any IPTables modifications we made 
    die("Interrupted, quitting...\n");
 }
 
-sub ipt_delete_chain {
+sub delete_chain {
    my $chain = shift or return;
    # To delete a chain you firstly have to delete all references to it.
    # This has to be done manually, I don't think IPTables has an option
@@ -88,21 +89,21 @@ sub ipt_delete_chain {
    close $iptables_in;
    open my $iptables_out, "| iptables-restore";
    foreach my $rule (@rules) {
-   	if ($rule !~ /-j $chain/) { print $iptables_out $rule or die("Unable to add rules to IPTables"); }
+       if ($rule !~ /-j $chain/) { print $iptables_out $rule or die("Unable to add rules to IPTables: $!"); }
    }
    close $iptables_out;
    # Now just need to delete the chain, which should be simpler.
-   system("iptables -F $chain"); # Delete all rules from the chain
-   system("iptables -X $chain"); # No need to analyse return code as expected to fail sometimes.
+   system("iptables -F $chain 2&>/dev/null"); # Delete all rules from the chain
+   system("iptables -X $chain 2&>/dev/null"); # No need to analyse return code as expected to fail sometimes.
 }
 
 sub init_iptables {
     # First remove the chain if it exists
     my ($chain, $comment) = (CHAIN, COMMENT); # unnecessary but allows for interpolation so more readable.
-    &ipt_delete_chain($chain);
-	 # Then add it again
-	 system("iptables -N $chain") and die("Unable to create chain");
-	 system("iptables -A INPUT -p $protocol -m multiport " .
+    &delete_chain($chain);
+     # Then add it again
+     system("iptables -N $chain") and die("Unable to create chain");
+     system("iptables -A INPUT -p $protocol -m multiport " .
                     "--dports ".join(',', @knock_ports)." -j $chain -m comment --comment $comment")
            and die ("Unable to add IPTables rule");
     system("iptables -A $chain -j LOG --log-prefix '$comment '") and die("Unable to add IPTables Logging");
@@ -113,33 +114,30 @@ sub allow_access {
     my ($host, $port) = @_;
     print "Allowing access from $host to $port\n";
     system("iptables -I " . CHAIN . " -p $protocol --source $host --dport $port -j ACCEPT")
-    	and die("Unable to add rule allowing host: [$host] access to port: [$port]");
+        and die("Unable to add rule allowing host: [$host] access to port: [$port]");
 }
 
 sub check_entry {
+    # Check a knock against the knock sequence.
     my ($source, $port);
     if (/\sSRC=([\d\.]+)\s.*DPT=(\d+)\s/) {
         ($source, $port) = ($1, $2);
     }
     else {
         warn("Didn't match source or port");
-        print "$_\n";
         return;
     }
-    my $progress = $hosts{$source} || 0; # host must progress through each knock before being allowed access.
-    print "Progress for $source is $progress\n";
+    # host must progress through each knock before being allowed access
+    my $progress = $hosts{$source} || 0;
     if ($port != $sequence[$progress]) {
-        print "Dropping to 0\n";
+        # Knock was incorrect
         $hosts{$source} = 0;
     }
     else {
-        print "Increasing by 1\n";
         $hosts{$source}++;
-        print "Now $hosts{$source}\n";
-        print join "\n", (keys %hosts);
         if ($hosts{$source} == @sequence) {
-            allow_access($source, $port_number);
+            &allow_access($source, $port_number);
         }
     }
     exit;
-} 
+}
