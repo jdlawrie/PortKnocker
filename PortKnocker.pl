@@ -66,44 +66,44 @@ sub fork_end {
 }
 
 sub interrupted {
-   die if $pids{$$}; # I don't want all forks trying to delete the IPTables rules. 
-   if(keys %pids) { 
-      sleep(1); # want to make sure pids close first, give them a second to do so willingly
-      foreach my $pid (keys %pids) {
-          kill 9, $pid;
-      }
-   }
-   &delete_chain(CHAIN); # remove any IPTables modifications we made 
-   die("Interrupted, quitting...\n");
+    die if $pids{$$}; # I don't want all forks trying to delete the IPTables rules. 
+    if(keys %pids) { 
+        sleep(1); # want to make sure pids close first, give them a second to do so willingly
+        foreach my $pid (keys %pids) {
+            kill 9, $pid;
+        }
+    }
+    &delete_chain(CHAIN); # remove any IPTables modifications we made 
+    die("Interrupted, quitting...\n");
 }
 
 sub delete_chain {
-   my $chain = shift or return;
-   # To delete a chain you firstly have to delete all references to it.
-   # This has to be done manually, I don't think IPTables has an option
-   # for it.
-   open my $iptables_in, "/sbin/iptables-save |" or die("Unable to get IPTables rules: $!");
-   # Have to store them all and then restore otherwise run the risk of overwriting the rules
-   # before we've read them all.
-   my @rules = <$iptables_in>;
-   close $iptables_in;
-   open my $iptables_out, "| iptables-restore";
-   foreach my $rule (@rules) {
-       if ($rule !~ /-j $chain/) { print $iptables_out $rule or die("Unable to add rules to IPTables: $!"); }
-   }
-   close $iptables_out;
-   # Now just need to delete the chain, which should be simpler.
-   system("iptables -F $chain 2&>/dev/null"); # Delete all rules from the chain
-   system("iptables -X $chain 2&>/dev/null"); # No need to analyse return code as expected to fail sometimes.
-}
+    my $chain = shift or return;
+    # To delete a chain you firstly have to delete all references to it.
+    # This has to be done manually, I don't think IPTables has an option
+    # for it.
+    open my $iptables_in, "/sbin/iptables-save |" or die("Unable to get IPTables rules: $!");
+    # Have to store them all and then restore otherwise run the risk of overwriting the rules
+    # before we've read them all.
+    my @rules = <$iptables_in>;
+    close $iptables_in;
+    open my $iptables_out, "| iptables-restore";
+    foreach my $rule (@rules) {
+        if ($rule !~ /-j $chain/) { print $iptables_out $rule or die("Unable to add rules to IPTables: $!"); }
+    }
+    close $iptables_out;
+    # Now just need to delete the chain, which should be simpler.
+    system("iptables -F $chain 2&>/dev/null"); # Delete all rules from the chain
+    system("iptables -X $chain 2&>/dev/null"); # No need to analyse return code as expected to fail sometimes
+} 
 
 sub init_iptables {
     # First remove the chain if it exists
     my ($chain, $comment) = (CHAIN, COMMENT); # unnecessary but allows for interpolation so more readable.
     &delete_chain($chain);
-     # Then add it again
-     system("iptables -N $chain") and die("Unable to create chain");
-     system("iptables -A INPUT -p $protocol -m multiport " .
+    # Then add it again
+    system("iptables -N $chain") and die("Unable to create chain");
+    system("iptables -A INPUT -p $protocol -m multiport " .
                     "--dports ".join(',', @knock_ports)." -j $chain -m comment --comment $comment")
            and die ("Unable to add IPTables rule");
     system("iptables -A $chain -j LOG --log-prefix '$comment '") and die("Unable to add IPTables Logging");
