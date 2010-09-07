@@ -3,8 +3,7 @@
 use strict;
 use warnings;
 
-use POSIX ":sys_wait_h"; 
-use IPTables::IPv4;
+use POSIX ":sys_wait_h";  
 
 use constant CHAIN      => 'PortKnocker';
 use constant COMMENT    => 'PortKnocker ';
@@ -31,7 +30,7 @@ my %hosts;
 $SIG{'INT'}  = \&interrupted;
 $SIG{'CHLD'} = \&fork_end;
 
-open my $log, "<", "tail -n0 -f $log_file |" or die('Unable to open logfile');
+open my $log, "tail -n0 -f $log_file |" or die('Unable to open logfile: $!');
 while (<$log>) {
     next unless /$log_prefix/;
     while (keys(%pids) >= MAX_FORKS) {
@@ -52,7 +51,8 @@ sub fork_end {
 }
 
 sub interrupted {
-	&ipt_delete_chain;
+   while(keys %pids) { sleep(1); } # want to make sure pids close first.
+	&ipt_delete_chain(CHAIN);
 	die("Interrupted, quitting...\n");
 }
 
@@ -72,21 +72,21 @@ sub ipt_delete_chain {
    }
    close $iptables_out;
    # Now just need to delete the chain, which should be simpler.
-   my $status = system("iptables -X $chain");
-   return ($status == 256 ? 0 : $status); #256 is illegal seek, returned when the chain doesn't exist. 
+   system("iptables -F $chain 2&>1"); # Delete all rules from the chain
+   system("iptables -X $chain 2&>1"); # No need to analyse return code as expected to fail sometimes.
 }
 
 sub init_iptables {
     # First remove the chain if it exists
     my ($chain, $comment) = (CHAIN, COMMENT); # unnecessary but allows for interpolation so more readable.
-	 die "Unable to remove IPTables chain: $!" if ipt_delete_chain($chain);
+    &ipt_delete_chain($chain);
 	 # Then add it again
-	 system("iptables -N $chain") or die("Unable to add IPTables chain: $!");
-	 system("iptables -A INPUT -p $protocol" .
+	 system("iptables -N $chain") and die("Unable to create chain");
+	 system("iptables -A INPUT -p $protocol -m multiport " .
                     "--dports ".join(',', @knock_ports)." -j $chain -m comment --comment $comment")
-           or die ("Unable to add IPTables rule: $!");
-    system("iptables -A $chain -j LOG --log-prefix '$comment '") or die("Unable to add IPTables Logging: $!");
-    system("iptables -A $chain -p $protocol --dport $port -j REJECT") or die("Unable to IPTables rule: $!");
+           and die ("Unable to add IPTables rule");
+    system("iptables -A $chain -j LOG --log-prefix '$comment '") and die("Unable to add IPTables Logging");
+    system("iptables -A $chain -p $protocol --dport $port -j REJECT") and die("Unable to IPTables rule");
 }
 
 sub allow_access {
