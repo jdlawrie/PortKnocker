@@ -1,4 +1,19 @@
 #!/usr/bin/perl
+#
+# PortKnocker.pl
+#
+# Author: James Lawrie
+#
+# Description: Portknocking helps to prevent bruteforcing by allowing a particular port to
+# be opened to a given IP address only once a particular 'knock sequence' has been sent to
+# a range of other ports. In the example in this code, TCP port 21 is closed to all hosts 
+# unless they first attempt to connect to TCP ports 2000, 2001 and 2002, in that order.
+# This script is a very basic implementation of a port knock daemon, which listens for the
+# knocks (using iptables logging) and handles iptables accepts/rejects as necessary. It uses
+# forking for each knock sequence check, which in some ways was a bad idea but I wanted to see
+# if I could get it working.
+# The code is heavily reliant on Linux, and has been tested on Fedora Core 12 and 13, although
+# it should run on any derivative of RHEL5 or later. It needs IPTables and IPC::Shareable. 
 
 use strict;
 use warnings;
