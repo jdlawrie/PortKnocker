@@ -6,7 +6,7 @@
 #
 # Description: Portknocking helps to prevent bruteforcing by allowing a particular port to
 # be opened to a given IP address only once a particular 'knock sequence' has been sent to
-# a range of other ports. In the example in this code, TCP port 21 is closed to all hosts 
+# a range of other ports. In the example in this code, TCP port 22 is closed to all hosts 
 # unless they first attempt to connect to TCP ports 2000, 2001 and 2002, in that order.
 # This script is a very basic implementation of a port knock daemon, which listens for the
 # knocks (using iptables logging) and handles iptables accepts/rejects as necessary. It uses
@@ -28,7 +28,7 @@ use constant MAX_FORKS  => 10;
 
 # The following aren't constants as most likely to be
 # configurable if that option is provided.
-my $port_number   = 21;                   # The port number to allow access to
+my $port_number   = 22;                   # The port number to allow access to
 my $protocol      = 'tcp';
 my @knock_ports   = (2000..2010);         # The range of ports to log
 my @sequence      = (2000, 2001, 2002);   # The knock sequence
@@ -108,8 +108,8 @@ sub delete_chain {
     }
     close $iptables_out;
     # Now just need to delete the chain, which should be simpler.
-    system("iptables -F $chain 2&>/dev/null"); # Delete all rules from the chain
-    system("iptables -X $chain 2&>/dev/null"); # No need to analyse return code as expected to fail sometimes
+    system("iptables -F $chain"); # Delete all rules from the chain
+    system("iptables -X $chain"); # No need to analyse return code as expected to fail sometimes
 } 
 
 sub init_iptables {
@@ -118,8 +118,8 @@ sub init_iptables {
     &delete_chain($chain);
     # Then add it again
     system("iptables -N $chain") and die("Unable to create chain");
-    system("iptables -A INPUT -p $protocol -m multiport " .
-                    "--dports ".join(',', @knock_ports)." -j $chain -m comment --comment $comment")
+    system("iptables -I INPUT -p $protocol -m multiport " .
+                    "--dports $port_number,".join(',', @knock_ports)." -j $chain -m comment --comment $comment")
            and die ("Unable to add IPTables rule");
     system("iptables -A $chain -j LOG --log-prefix '$comment '") and die("Unable to add IPTables Logging");
     system("iptables -A $chain -p $protocol --dport $port_number -j REJECT") and die("Unable to IPTables rule");
