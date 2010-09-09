@@ -4,10 +4,11 @@
 #
 # Author: James Lawrie
 # 
-# Version: 0.10
+# Version: 0.11
 #
 # Changelog since last version:
-# Port set to 22, problem with chains fixed, set to use File::Tail instead of a system call. 
+# Port set to 22, problem with chains fixed, set to use File::Tail instead of a system call,
+# moved rules around so that dropped packets to $port_number are not logged. 
 #
 # Description: Portknocking helps to prevent bruteforcing by allowing a particular port to
 # be opened to a given IP address only once a particular 'knock sequence' has been sent to
@@ -132,8 +133,8 @@ sub init_iptables {
     system("iptables -I INPUT -p $protocol -m multiport " .
                     "--dports $port_number,".join(',', @knock_ports)." -j $chain -m comment --comment $comment")
            and die ("Unable to add IPTables rule");
-    system("iptables -A $chain -j LOG --log-prefix '$comment '") and die("Unable to add IPTables Logging");
     system("iptables -A $chain -p $protocol --dport $port_number -j REJECT") and die("Unable to IPTables rule");
+    system("iptables -A $chain -j LOG --log-prefix '$comment '") and die("Unable to add IPTables Logging");
 }
 
 sub allow_access {
