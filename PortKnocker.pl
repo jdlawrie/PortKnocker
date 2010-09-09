@@ -1,29 +1,56 @@
 #!/usr/bin/perl
 #
-# PortKnocker.pl
+# PortKnocker.pl - A simple port knocking daemon
+# Version 0.14 Copyright (C) 2010 James Lawrie
 #
-# Author: James Lawrie
-# 
-# Version: 0.12
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 # Changelog since last version:
-# Port set to 22, problem with chains fixed, set to use File::Tail instead of a system call,
-# moved rules around so that dropped packets to $port_number are not logged. 
+# - Moved back from File::Tail to "tail -f $file |" as File::Tail only allows
+#   reads every second (uses sleep(integer) inside the code and 0 seems to default
+#   to 1)
+# - Added in IPTables rule to allow established connections
+# - Now allows a list of "already trusted" IP addresses to be passed as arguments.
 #
-# Description: Portknocking helps to prevent bruteforcing by allowing a particular port to
-# be opened to a given IP address only once a particular 'knock sequence' has been sent to
-# a range of other ports. In the example in this code, TCP port 22 is closed to all hosts 
+# Description
+# Portknocking helps to prevent bruteforcing by allowing a particular internal port to
+# be opened for a given external IP address only after a particular 'knock sequence' has been
+# sent to a range of other ports. In the example in this code, TCP port 22 is closed to all hosts 
 # unless they first attempt to connect to TCP ports 2000, 2001 and 2002, in that order.
+#
 # This script is a very basic implementation of a port knock daemon, which listens for the
 # knocks (using iptables logging) and handles iptables accepts/rejects as necessary. It uses
-# forking for each knock sequence check, which in some ways was a bad idea but I wanted to see
-# if I could get it working.
+# forking for each knock sequence check, which in some ways was a bad idea and is unlikely to
+# be necessary.
 # 
-# Requirements:
-# 
-# The code is heavily reliant on Linux, and has been tested on Fedora Core 12 and 13, although
-# it should run on any derivative of RHEL5 or later.
-# It needs IPTables, perl-File-Tail and IPC::Shareable. 
+# Requirements
+# - Linux RedHat 5 derivated or later
+# - IPTables (tested on v1.4.5)
+# - IPC::Shareable (perl-IPC-Shareable on Fedora 13)
+#
+# Disclaimer
+# I cannot take any responsibility for your use of this script. If you want to use it, do so at
+# your own risk - don't come complaining to me if you lock yourself out of SSH or rely on this
+# alone for security and fall victim to a replay attack.
+#
+# To do
+# - Replace IPTables system calls with a module. I couldn't get IPTables::IPv4 to install, any
+#   other suggestions are welcome.
+# - Replace system call for tail with Perl. File::Tail was not an option.
+#
+# Suggestions/Complaints/Feedback welcome to james [at] shitsandgiggl.es
+#
 
 use strict;
 use warnings;
@@ -138,7 +165,8 @@ sub init_iptables {
     system("iptables -I INPUT -p $protocol -m multiport " .
                     "--dports $port_number,".join(',', @knock_ports)." -j $chain -m comment --comment $comment")
            and die ("Unable to add IPTables rule");
-    system("iptables -A $chain -p $protocol --dport $port_number -j REJECT") and die("Unable to IPTables rule");
+    system("iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT") and die ("Unable to add IPTables rule");
+    system("iptables -A $chain -p $protocol --dport $port_number -j REJECT") and die("Unable to add IPTables rule");
     system("iptables -A $chain -j LOG --log-prefix '$comment '") and die("Unable to add IPTables Logging");
 }
 
