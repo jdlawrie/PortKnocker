@@ -61,15 +61,20 @@ tie %hosts, 'IPC::Shareable', 'data', \%options; # allow the hosts hash to be us
 # First version of the code doesn't leave existing rules
 &init_iptables();
 
+# Allow some safe hosts/IPs to be passed as arguments.
+foreach (@ARGV) {
+    &allow_access($_, $port_number);
+}
+
 # 'Daemon' section of the code - listens for changes in the logfile
 # and forks a process to deal with it. Will need to be killed with
 # (at least) SIGINT so needs handler to restore IPTables.
 $SIG{'INT'}  = \&interrupted;
 $SIG{'CHLD'} = \&fork_end;
 
-my $log = File::Tail->new(name => $log_file, maxinterval => 0.1, interval => 0.1);
+open my $log, "tail -f -n0 $log_file |";
 
-while (defined ($_ = $log->read())) {
+while (<$log>) {
     next unless /$log_prefix/;
     while (keys(%pids) >= MAX_FORKS) {
         warn('Too many forks, sleeping');        
