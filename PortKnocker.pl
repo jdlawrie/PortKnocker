@@ -3,6 +3,11 @@
 # PortKnocker.pl
 #
 # Author: James Lawrie
+# 
+# Version: 0.10
+#
+# Changelog since last version:
+# Port set to 22, problem with chains fixed, set to use File::Tail instead of a system call. 
 #
 # Description: Portknocking helps to prevent bruteforcing by allowing a particular port to
 # be opened to a given IP address only once a particular 'knock sequence' has been sent to
@@ -12,15 +17,20 @@
 # knocks (using iptables logging) and handles iptables accepts/rejects as necessary. It uses
 # forking for each knock sequence check, which in some ways was a bad idea but I wanted to see
 # if I could get it working.
+# 
+# Requirements:
+# 
 # The code is heavily reliant on Linux, and has been tested on Fedora Core 12 and 13, although
-# it should run on any derivative of RHEL5 or later. It needs IPTables and IPC::Shareable. 
+# it should run on any derivative of RHEL5 or later.
+# It needs IPTables, perl-File-Tail and IPC::Shareable. 
 
 use strict;
 use warnings;
 
 # Decided to try to use forks for this, so needed shareable variables 
 use IPC::Shareable;
-use POSIX ":sys_wait_h"; 
+use File::Tail;
+use POSIX ":sys_wait_h";
 
 use constant CHAIN      => 'PortKnocker';
 use constant COMMENT    => 'PortKnocker ';
@@ -56,8 +66,9 @@ tie %hosts, 'IPC::Shareable', 'data', \%options; # allow the hosts hash to be us
 $SIG{'INT'}  = \&interrupted;
 $SIG{'CHLD'} = \&fork_end;
 
-open my $log, "tail -n0 -f $log_file |" or die('Unable to open logfile: $!');
-while (<$log>) {
+my $log = File::Tail->new(name => $log_file, maxinterval => 1, interval => 1);
+
+while (defined ($_ = $log->read())) {
     next unless /$log_prefix/;
     while (keys(%pids) >= MAX_FORKS) {
         warn('Too many forks, sleeping');        
