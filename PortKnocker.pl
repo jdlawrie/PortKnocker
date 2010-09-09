@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 #
 # PortKnocker.pl - A simple port knocking daemon
-# Version 0.14 Copyright (C) 2010 James Lawrie
+# Version 0.15 Copyright (C) 2010 James Lawrie
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,8 +34,13 @@
 # forking for each knock sequence check, which in some ways was a bad idea and is unlikely to
 # be necessary.
 # 
+# Usage
+# Either set it as executable and run it, or pass it as an argument to your perl interpreter.
+# I'd advise running it in a screen as a background process. To stop it, simply send it a
+# SIGTERM and it should revert all firewall rules.
+#
 # Requirements
-# - Linux RedHat 5 derivated or later
+# - Linux RedHat 5 derivative or later
 # - IPTables (tested on v1.4.5)
 # - IPC::Shareable (perl-IPC-Shareable on Fedora 13)
 #
@@ -119,7 +124,6 @@ while (<$log>) {
 sub fork_end {
     my $pid; # once a fork ends, remove it from the fork hash.
     while(($pid = waitpid(-1, &WNOHANG)) > 1) {
-        print "Finished with $pid\n";
         delete($pids{$pid});
     }
 }
@@ -165,7 +169,7 @@ sub init_iptables {
     system("iptables -I INPUT -p $protocol -m multiport " .
                     "--dports $port_number,".join(',', @knock_ports)." -j $chain -m comment --comment $comment")
            and die ("Unable to add IPTables rule");
-    system("iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT") and die ("Unable to add IPTables rule");
+    system("iptables -A $chain -m state --state RELATED,ESTABLISHED -j ACCEPT") and die ("Unable to add IPTables rule");
     system("iptables -A $chain -p $protocol --dport $port_number -j REJECT") and die("Unable to add IPTables rule");
     system("iptables -A $chain -j LOG --log-prefix '$comment '") and die("Unable to add IPTables Logging");
 }
