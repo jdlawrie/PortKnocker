@@ -4,7 +4,7 @@
 #
 # Author: James Lawrie
 # 
-# Version: 0.11
+# Version: 0.12
 #
 # Changelog since last version:
 # Port set to 22, problem with chains fixed, set to use File::Tail instead of a system call,
@@ -67,7 +67,7 @@ tie %hosts, 'IPC::Shareable', 'data', \%options; # allow the hosts hash to be us
 $SIG{'INT'}  = \&interrupted;
 $SIG{'CHLD'} = \&fork_end;
 
-my $log = File::Tail->new(name => $log_file, maxinterval => 1, interval => 1);
+my $log = File::Tail->new(name => $log_file, maxinterval => 0.1, interval => 0.1);
 
 while (defined ($_ = $log->read())) {
     next unless /$log_prefix/;
