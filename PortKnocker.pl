@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 #
 # PortKnocker.pl - A simple port knocking daemon
-# Version 0.15 Copyright (C) 2010 James Lawrie
+# Version 0.16 Copyright (C) 2010 James Lawrie
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,7 +16,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-# Changelog since last version:
+# Recent changelog:
+# - Few format modifications thanks to constructive criticism from Dominic Mitchell (thanks!)
 # - Moved back from File::Tail to "tail -f $file |" as File::Tail only allows
 #   reads every second (uses sleep(integer) inside the code and 0 seems to default
 #   to 1)
@@ -61,8 +62,7 @@ use strict;
 use warnings;
 
 # Decided to try to use forks for this, so needed shareable variables 
-use IPC::Shareable;
-use File::Tail;
+use IPC::Shareable; 
 use POSIX ":sys_wait_h";
 
 use constant CHAIN      => 'PortKnocker';
@@ -95,16 +95,16 @@ tie %hosts, 'IPC::Shareable', 'data', \%options; # allow the hosts hash to be us
 
 # Allow some safe hosts/IPs to be passed as arguments.
 foreach (@ARGV) {
-    &allow_access($_, $port_number);
+    allow_access($_, $port_number);
 }
 
 # 'Daemon' section of the code - listens for changes in the logfile
 # and forks a process to deal with it. Will need to be killed with
 # (at least) SIGINT so needs handler to restore IPTables.
-$SIG{'INT'}  = \&interrupted;
-$SIG{'CHLD'} = \&fork_end;
+$SIG{INT}  = \&interrupted;
+$SIG{CHLD} = \&fork_end;
 
-open my $log, "tail -f -n0 $log_file |";
+open my $log, "tail -F -n0 $log_file |" or die("Unable to open log file: $!");
 
 while (<$log>) {
     next unless /$log_prefix/;
@@ -117,7 +117,7 @@ while (<$log>) {
         $pids{$pid}++;
     }
     else {
-        &check_entry($_); # compare the 'knock' against the sequence.
+        check_entry($_, $pid); # compare the 'knock' against the sequence.
     }
 }
 
@@ -132,11 +132,13 @@ sub interrupted {
     die if $pids{$$}; # I don't want all forks trying to delete the IPTables rules. 
     if(keys %pids) { 
         sleep(1); # want to make sure pids close first, give them a second to do so willingly
-        foreach my $pid (keys %pids) {
-            kill 9, $pid;
-        }
+        # Give them a chance to die peacefully, in their sleep
+        kill TERM (keys %pids);
+        sleep(1);
+        # Time to slaughter them
+        kill KILL (keys %pids);
     }
-    &delete_chain(CHAIN); # remove any IPTables modifications we made 
+    delete_chain(CHAIN); # remove any IPTables modifications we made 
     die("Interrupted, quitting...\n");
 }
 
@@ -144,18 +146,10 @@ sub delete_chain {
     my $chain = shift or return;
     # To delete a chain you firstly have to delete all references to it.
     # This has to be done manually, I don't think IPTables has an option
-    # for it.
-    open my $iptables_in, "/sbin/iptables-save |" or die("Unable to get IPTables rules: $!");
-    # Have to store them all and then restore otherwise run the risk of overwriting the rules
-    # before we've read them all.
-    my @rules = <$iptables_in>;
-    close $iptables_in;
-    open my $iptables_out, "| iptables-restore";
-    foreach my $rule (@rules) {
-        if ($rule !~ /-j $chain/) { print $iptables_out $rule or die("Unable to add rules to IPTables: $!"); }
-    }
-    close $iptables_out;
-    # Now just need to delete the chain, which should be simpler.
+    # for it. Doing this all via a system call.
+    system("iptables-save | grep -v '-j $chain' | iptables-restore")
+        or die('Unable to remove references to chain');
+    # Now just need to delete the chain.
     system("iptables -F $chain"); # Delete all rules from the chain
     system("iptables -X $chain"); # No need to analyse return code as expected to fail sometimes
 } 
@@ -163,7 +157,7 @@ sub delete_chain {
 sub init_iptables {
     # First remove the chain if it exists
     my ($chain, $comment) = (CHAIN, COMMENT); # unnecessary but allows for interpolation so more readable.
-    &delete_chain($chain);
+    delete_chain($chain);
     # Then add it again
     system("iptables -N $chain") and die("Unable to create chain");
     system("iptables -I INPUT -p $protocol -m multiport " .
@@ -184,7 +178,8 @@ sub allow_access {
 sub check_entry {
     # Check a knock against the knock sequence.
     my ($source, $port);
-    if (/\sSRC=([\d\.]+)\s.*DPT=(\d+)\s/) {
+    my ($knock, $pid) = @_;
+    if ($knock =~ /\sSRC=([\d.]+)\s.*DPT=(\d+)\s/) {
         ($source, $port) = ($1, $2);
     }
     else {
@@ -200,8 +195,10 @@ sub check_entry {
     else {
         $hosts{$source}++;
         if ($hosts{$source} == @sequence) {
-            &allow_access($source, $port_number);
+            allow_access($source, $port_number);
         }
     }
-    exit;
+    # Terminate the fork here, unless forking was unsuccessful (in which case
+    # return to the loop)
+    exit unless !defined($pid);
 }
