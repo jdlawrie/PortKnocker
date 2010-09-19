@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 #
 # PortKnocker.pl - A simple port knocking daemon
-# Version 0.16 Copyright (C) 2010 James Lawrie
+# Version 0.17 Copyright (C) 2010 James Lawrie
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -147,8 +147,8 @@ sub delete_chain {
     # To delete a chain you firstly have to delete all references to it.
     # This has to be done manually, I don't think IPTables has an option
     # for it. Doing this all via a system call.
-    system("iptables-save | grep -v '-j $chain' | iptables-restore")
-        or die('Unable to remove references to chain');
+    system("iptables-save | grep -v 'j $chain' | iptables-restore")
+        and die('Unable to remove references to chain');
     # Now just need to delete the chain.
     system("iptables -F $chain"); # Delete all rules from the chain
     system("iptables -X $chain"); # No need to analyse return code as expected to fail sometimes
