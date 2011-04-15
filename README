@@ -1,0 +1,30 @@
+Description
+Portknocking helps to prevent bruteforcing by allowing a particular internal port to
+be opened for a given external IP address only after a particular 'knock sequence' has been
+sent to a range of other ports. In the example in this code, TCP port 22 is closed to all hosts
+unless they first attempt to connect to TCP ports 2000, 2001 and 2002, in that order.
+
+This script is a very basic implementation of a port knock daemon, which listens for the
+knocks (using iptables logging) and handles iptables accepts/rejects as necessary. It uses
+forking for each knock sequence check, which in some ways was a bad idea and is unlikely to
+be necessary.
+ 
+Usage
+Either set it as executable and run it, or pass it as an argument to your perl interpreter.
+I'd advise running it in a screen as a background process. To stop it, simply send it a
+SIGTERM and it should revert all firewall rules.
+
+Requirements
+- Linux RedHat 5 derivative or later
+- IPTables (tested on v1.4.5)
+- IPC::Shareable (yum install perl-IPC-Shareable on Fedora 13)
+
+Disclaimer
+I cannot take any responsibility for your use of this script. If you want to use it, do so at
+your own risk - don't come complaining to me if you lock yourself out of SSH or rely on this
+alone for security and fall victim to a replay attack.
+
+To do
+- Replace IPTables system calls with a module. I couldn't get IPTables::IPv4 to install, any
+  other suggestions are welcome.
+- Replace system call for tail with Perl. File::Tail was not an option.
